@@ -210,7 +210,8 @@
                               (t
                                (efire--error "status was %s" status)
                                (when error-callback
-                                 (funcall error-callback status)))))
+                                 (funcall error-callback status))))
+                        (kill-buffer (current-buffer)))
                     nil
                     'silent
                     'inhibit-cookies))))
