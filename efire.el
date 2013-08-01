@@ -125,16 +125,23 @@
            user))))
 
 (defun efire--send-message (room input)
-  (let ((url-request-method "POST")
-        ;; (url-mime-charset-string nil)
-        ;; (url-extensions-header nil)
-        (url-request-extra-headers
-         '(("Content-Type" . "application/json")
-           ;; ("User-Agent" . "efire (joaotavora@gmail.com)")
-           ))
-        (url-request-data
-         (json-encode `((message  (body . ,input)
-                                  (type . "TextMessage"))))))
+  (let* ((message-type (if (string-match "\n" input)
+                           (progn
+                             (replace-regexp-in-string "\n"
+                                                       "&#xA;"
+                                                       input)
+                             "PasteMessage")
+                         "TextMessage"))
+         (url-request-method "POST")
+         ;; (url-mime-charset-string nil)
+         ;; (url-extensions-header nil)
+         (url-request-extra-headers
+          '(("Content-Type" . "application/json")
+            ;; ("User-Agent" . "efire (joaotavora@gmail.com)")
+            ))
+         (url-request-data
+          (json-encode `((message  (body . ,input)
+                                   (type . ,message-type))))))
     (efire--request-async (format "room/%d/speak.json" (efire--get 'id room))
                           #'(lambda (data)
                               (efire--info "posted sucessfully and server replied with %s" data))
@@ -168,11 +175,18 @@
          (user-name (if user
                         (propertize (efire--get 'name user)
                                     'face 'font-lock-keyword-face)
-                      (format "looking for %s" (efire--get 'user_id message)))))
-    (cond ((memq (intern type)
+                      (format "looking for %s" (efire--get 'user_id message))))
+         (type-sym (intern type))
+         (lui-fill-type (if (eq type-sym 'PasteMessage)
+                            nil
+                          lui-fill-type)))
+    (cond ((memq type-sym
                  '(TextMessage PasteMessage))
-           (lui-insert (format "%s: %s"
+           (lui-insert (format "%s: %s%s"
                                user-name
+                               (if (eq type-sym 'PasteMessage)
+                                   "\n"
+                                 "")
                                (efire--get 'body message)))))))
 
 (defun efire--get (key object)
