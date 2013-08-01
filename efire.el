@@ -87,7 +87,8 @@
          (buffer (current-buffer))
          timer
          (cancel-fn #'(lambda (&optional _dummy)
-                        (efire--warning "cancelling timer in buffer %s" buffer)
+                        (efire--warning "tearing down room in buffer %s" buffer)
+                        (setq tracking-buffers (remove buffer tracking-buffers))
                         (cancel-timer timer)))
          (known-users (make-hash-table)))
     (set-buffer-multibyte t)
@@ -95,6 +96,8 @@
     (set (make-local-variable 'lui-input-function)
          #'(lambda (input)
              (efire--send-message room input)))
+
+    (add-to-list 'tracking-buffers buffer)
 
     (setq timer
           (run-at-time
