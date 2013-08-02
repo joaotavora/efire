@@ -108,7 +108,7 @@
               (cancel-timer timer)))
          (oops-fn
           #'(lambda (reason)
-              (efire--warning "Non-fatal oops in room %s in buffer  %s" room-id buffer reason)))
+              (efire--warning "Non-fatal oops in room %s in buffer %s: %s" room-id buffer reason)))
          (irrelevant-fn
           #'(lambda (whatever)
               (efire--trace "Whatever: %s" whatever)))
@@ -138,7 +138,7 @@
                                                (efire--get 'id last-message))
                                           message-fn
                                           irrelevant-fn
-                                          teardown-fn)))
+                                          oops-fn)))
          (timer-fn
           #'(lambda ()
               (efire--trace "Timer fired for room id=%s in buffer %s" room-id buffer)
