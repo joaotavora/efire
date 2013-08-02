@@ -149,7 +149,7 @@
           #'(lambda ()
               (efire--info "Got %s users, starting timer" (hash-table-count known-users))
               (efire--trace "Starting timer for room id=%s" room-id)
-              (setq timer (run-at-time nil 2 timer-fn))))
+              (setq timer (run-at-time nil 2 #'(lambda () (with-current-buffer buffer (funcall timer-fn)))))))
          (joined-fn
           #'(lambda (_data)
               (efire--get-users room-id
