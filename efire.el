@@ -96,6 +96,7 @@
 (defun efire--setup-room (room)
   (let* (;;; data
          last-message
+         recently-inserted-own-messages
          (buffer (current-buffer))
          timer
          (known-users (make-hash-table))
@@ -119,17 +120,20 @@
                        known-users)))
          (message-fn
           #'(lambda (message)
-              (let ((message-id (efire--get 'id message))
-                    (last-message-id (and last-message
-                                          (efire--get 'id last-message))))
-                (efire--trace "Inserting message id=%s" )
-                (when (or (not last-message-id)
-                          (> message-id last-message-id))
-                  (efire--insert-message
-                   (efire--find-user (efire--get 'user_id message) known-users register-user-fn)
-                   message)))
-              (setq last-message message)))
-         (own-message-fn message-fn)
+              (efire--trace "Inserting message id=%s" (efire--get 'id message))
+              (unless (cl-find message
+                               recently-inserted-own-messages
+                               :key #'(lambda (message) (efire--get 'id message))
+                               :test #'equal)
+                (efire--insert-message
+                 (efire--find-user (efire--get 'user_id message) known-users register-user-fn)
+                 message))
+              (setq recently-inserted-own-messages nil
+                    last-message message)))
+         (own-message-fn message-fn
+                         #'(lambda (message)
+                             (efire--insert-message efire--whoami message)
+                             (push message recently-inserted-own-messages)))
          (get-recent-messages-fn
           #'(lambda ()
               (efire--trace "Getting recent messages for room id=%s" room-id)
