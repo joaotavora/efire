@@ -52,6 +52,7 @@
 
 ;;; Interactive stuff
 ;;;
+;;;###autoload
 (defun efire-join-room (room)
   (interactive
    (progn
