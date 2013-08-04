@@ -42,49 +42,96 @@
 (defvar efire-host nil)
 
 
-;;; Internal vars
+;;; Internal vars, global
 ;;;
 (defvar efire--rooms nil)
-(defvar efire--timer nil)
 (defvar efire--whoami nil)
+
+
+;;; Internal vars, buffer-local
+;;;
+(defvar efire--timer nil)
+(defvar efire--last-message nil)
+(defvar efire--recently-inserted-own-messages nil)
+(defvar efire--buffer nil)
+(defvar efire--timer nil)
+(defvar efire--known-users nil)
+(defvar efire--room-id nil)
+
+(make-variable-buffer-local 'efire--timer)
+(make-variable-buffer-local 'efire--last-message)
+(make-variable-buffer-local 'efire--recently-inserted-own-messages)
+(make-variable-buffer-local 'efire--buffer)
+(make-variable-buffer-local 'efire--timer)
+(make-variable-buffer-local 'efire--known-users)
+(make-variable-buffer-local 'efire--room-id)
 
 
 
 ;;; Interactive stuff
 ;;;
 ;;;###autoload
-(defun efire-join-room (room)
+(defun efire-join-room (room-name)
   (interactive
    (progn
      (efire--message "getting room names...")
      (setq efire--rooms (efire--get 'rooms (efire--request "rooms.json")))
      (setq efire--whoami (efire--get 'user (efire--request "users/me.json")))
+     (unless (and efire--rooms
+                  efire--whoami)
+       (error "[efire] cannot get room names or current user"))
      (list
-      (cl-find (completing-read
-                (efire--format "join which room? ")
-                (loop for room across efire--rooms
-                      collect (efire--get 'name room)))
-               efire--rooms
-               :key #'(lambda (room) (efire--get 'name room))
-               :test #'string=))))
-  (with-current-buffer (efire--room-buffer room)
-    (unless (eq major-mode 'efire-mode)
-      (efire-mode))
-    (when (or (not efire--timer)
-              (not (memq efire--timer timer-list)))
-      (set (make-local-variable 'efire--timer)
-           (efire--setup-room room)))
-    (pop-to-buffer (current-buffer))))
+      (completing-read
+       (efire--format "join which room? ")
+       (loop for room across efire--rooms
+             collect (efire--get 'name room))))))
+
+
+  (let ((room
+         (cl-find room-name
+                  efire--rooms
+                  :key #'(lambda (room) (efire--get 'name room))
+                  :test #'string=)))
+    (with-current-buffer (efire--room-buffer room-name)
+
+      (setq efire--room-id (efire--get 'id room))
+
+      (unless (eq major-mode 'efire-mode)
+        (efire-mode))
+
+      (when (or (not efire--timer)
+                (not (memq efire--timer timer-list)))
+        (efire--setup-room)
+        (efire--join-room #'efire--joined
+                          #'efire--teardown))
+
+      (pop-to-buffer (current-buffer)))))
 
 
 ;;; Helpers
 ;;;
-(defun efire--room-buffer (room)
-  (get-buffer-create (format "*campfire: %s*" (efire--get 'name room))))
+(defun efire--room-buffer (room-name)
+  (get-buffer-create (format "*campfire: %s*" room-name)))
+
+(defmacro efire--with-error-checking (error-callback doing-what &rest body)
+  (declare (indent 2))
+  (let ((err-sym (cl-gensym)))
+    `(condition-case ,err-sym
+         (progn
+           (efire--trace "%s" ,doing-what)
+           (funcall #'(lambda () ,@body)))
+       (error
+        (efire--error "something went wrong %s" ,doing-what)
+        (when ,error-callback
+          (funcall ,error-callback ,err-sym))
+        (when efire--debug
+          (signal 'error (cdr ,err-sym)))))))
+
 
 (define-derived-mode efire-mode lui-mode "efire"
   "A major mode for campfire rooms"
   (lui-set-prompt "\n: "))
+
 
 
 ;;; Main loop
@@ -94,86 +141,92 @@
 ;;; find-definition and code-reloading facilities that are rendered
 ;;; useless by this approach. To be refactored.
 ;;;
-(defun efire--setup-room (room)
-  (let* (;;; data
-         last-message
-         recently-inserted-own-messages
-         (buffer (current-buffer))
-         timer
-         (known-users (make-hash-table))
-         (room-id (efire--get 'id room))
-         ;;; functions
-         (teardown-fn
-          #'(lambda (reason)
-              (efire--warning "Tearing down room %s in buffer %s because %s" room-id buffer reason)
-              (tracking-remove-buffer buffer)
-              (cancel-timer timer)))
-         (oops-fn
-          #'(lambda (reason)
-              (efire--warning "Non-fatal oops in room %s in buffer %s: %s" room-id buffer reason)))
-         (irrelevant-fn
-          #'(lambda (whatever)
-              (efire--trace "Whatever: %s" whatever)))
-         (register-user-fn
-          #'(lambda (user)
-              (puthash (efire--get 'id user)
-                       user
-                       known-users)))
-         (message-fn
-          #'(lambda (message)
-              (efire--trace "Inserting message id=%s" (efire--get 'id message))
-              (unless (cl-find message
-                               recently-inserted-own-messages
-                               :key #'(lambda (message) (efire--get 'id message))
-                               :test #'equal)
-                (efire--insert-message
-                 (efire--find-user (efire--get 'user_id message) known-users register-user-fn)
-                 message))
-              (setq recently-inserted-own-messages nil
-                    last-message message)))
-         (own-message-fn message-fn
-                         #'(lambda (message)
-                             (efire--insert-message efire--whoami message)
-                             (push message recently-inserted-own-messages)))
-         (get-recent-messages-fn
-          #'(lambda ()
-              (efire--trace "Getting recent messages for room id=%s" room-id)
-              (efire--get-recent-messages room-id
-                                          (and last-message
-                                               (efire--get 'id last-message))
-                                          message-fn
-                                          irrelevant-fn
-                                          oops-fn)))
-         (timer-fn
-          #'(lambda ()
-              (efire--trace "Timer fired for room id=%s in buffer %s" room-id buffer)
-              (if (buffer-live-p buffer)
-                  (funcall get-recent-messages-fn)
-                  (funcall teardown-fn "buffer was killed"))))
-         (start-timer-fn
-          #'(lambda ()
-              (efire--info "Got %s users, starting timer" (hash-table-count known-users))
-              (efire--trace "Starting timer for room id=%s" room-id)
-              (setq timer (run-at-time nil 2 #'(lambda () (with-current-buffer buffer (funcall timer-fn)))))))
-         (joined-fn
-          #'(lambda (_data)
-              (efire--get-users room-id
-                                register-user-fn
-                                start-timer-fn
-                                teardown-fn)))
-         (send-message-fn
-          #'(lambda (input)
-              (efire--send-message room input
-                                   own-message-fn
-                                   oops-fn))))
+(defun efire--setup-room ()
+  (setq efire--buffer (current-buffer)
+        efire--known-users (make-hash-table)
+        lui-input-function #'efire--send-message)
 
-    (set-buffer-multibyte t)
-    (set (make-local-variable 'lui-input-function) send-message-fn)
-    (tracking-add-buffer buffer)
-    (efire--join-room room-id joined-fn teardown-fn)))
+  (set-buffer-multibyte t)
+  (tracking-add-buffer (current-buffer)))
 
-(defun efire--find-user (user-id known-users register-user-fn)
-  (let* ((user (gethash user-id known-users)))
+(defun efire--teardown (reason)
+  (efire--warning "Tearing down room %s in buffer %s because %s"
+                  efire--room-id
+                  (current-buffer)
+                  reason)
+  (tracking-remove-buffer (current-buffer))
+  (cancel-timer efire--timer))
+
+(defun efire--oops (reason)
+  (efire--warning "Non-fatal oops in room %s in buffer %s: %s"
+                  efire--room-id
+                  (current-buffer)
+                  reason))
+
+(defun efire--irrelevant (whatever)
+  (efire--trace "Whatever: %s" whatever))
+
+(defun efire--register-user (user)
+  (puthash (efire--get 'id user)
+           user
+           efire--known-users))
+
+(defun efire--message-received (message)
+  (efire--trace "Inserting message id=%s" (efire--get 'id message))
+  (unless (cl-find message
+                   efire--recently-inserted-own-messages
+                   :key #'(lambda (message) (efire--get 'id message))
+                   :test #'equal)
+    (efire--insert-message (efire--find-user (efire--get 'user_id message)
+                                             #'efire--register-user)
+                           message))
+  (setq efire--recently-inserted-own-messages '()
+        efire--last-message message))
+
+(defun efire--own-message-sent (message)
+  (efire--insert-message efire--whoami message)
+  (push message efire--recently-inserted-own-messages))
+
+(defun efire--fire-timer (buffer)
+  (efire--trace "Timer fired for room id=%s in buffer %s" efire--room-id buffer)
+  (if (buffer-live-p buffer)
+      (efire--get-recent-messages #'efire--message-received
+                                  #'efire--irrelevant
+                                  #'efire--oops)
+    (efire--teardown "buffer was killed")))
+
+(defun efire--start-timer ()
+  (efire--info "Got %s users, starting timer" (hash-table-count efire--known-users))
+  (efire--trace "Starting timer for room id=%s" efire--room-id)
+  (let* ((saved-buffer (current-buffer))
+         (efire--timer (timer-create))
+         (efire--room-id efire--room-id))
+    (timer-set-function efire--timer
+                        #'(lambda ()
+                            (let ((efire--timer efire--timer)
+                                  (efire--room-id efire--room-id))
+                              (efire--fire-timer saved-buffer))))
+    (timer-activate efire--timer)
+    (timer-set-time efire--timer (current-time) 2)))
+
+(defun efire--joined (_data)
+  (efire--get-users efire--room-id
+                    #'efire--register-user
+                    #'efire--start-timer
+                    #'efire--teardown))
+
+(defun efire--input-function (input)
+  (efire--send-message input
+                       #'efire--sent-own-message
+                       #'efire--oops))
+
+
+
+;;; Helpers
+;;;
+;;;
+(defun efire--find-user (user-id register-user-fn)
+  (let* ((user (gethash user-id efire--known-users)))
     (cond ((and user-id
                 (not user))
            (efire--warning "user %s not known, trying to find it asynch" user-id)
@@ -191,7 +244,7 @@
                          (efire--get 'name user))
            user))))
 
-(defun efire--send-message (room input message-sent-callback error-callback)
+(defun efire--send-message (input message-sent-callback error-callback)
   (let* ((message-type (if (string-match "\n" input)
                            (progn
                              (replace-regexp-in-string "\n"
@@ -205,7 +258,7 @@
          (url-request-data
           (json-encode `((message  (body . ,input)
                                    (type . ,message-type))))))
-    (efire--request-async (format "room/%d/speak.json" (efire--get 'id room))
+    (efire--request-async efire--room-id
                           #'(lambda (data)
                               (efire--trace "posted message sucessfully")
                               (let ((message (efire--get 'message data)))
@@ -214,12 +267,12 @@
                               (efire--trace "oops could not send your message because %s" err)
                               (funcall error-callback err)))))
 
-(defun efire--get-recent-messages (room-id last-message-id message-callback done-callback error-callback)
-  (let ((base-url (format "room/%d/recent.json" room-id)))
+(defun efire--get-recent-messages (message-callback done-callback error-callback)
+  (let ((base-url (format "room/%d/recent.json" efire--room-id)))
     (efire--request-async
-     (if last-message-id
+     (if efire--last-message
          (format "%s?since_message_id=%d"
-                 base-url last-message-id)
+                 base-url (efire--get 'id efire--last-message))
        base-url)
      #'(lambda (response)
          (efire--iterate (efire--get 'messages response)
@@ -227,19 +280,19 @@
                          error-callback)
          (funcall done-callback response))
      #'(lambda (err)
-         (efire--error "error getting messages for room-id=%s" room-id)
+         (efire--error "error getting messages for room-id=%s" efire--room-id)
          (funcall error-callback err)))))
 
-(defun efire--join-room (room-id done-callback error-callback)
+(defun efire--join-room (done-callback error-callback)
   (let ((url-request-method "POST")
         (url-request-extra-headers
          '(("Content-Type" . "application/json"))))
-    (efire--request-async (format "room/%d/join.json" room-id)
+    (efire--request-async (format "room/%d/join.json" efire--room-id)
                           #'(lambda (data)
-                              (efire--info "sucessfully joined room-id=%d (got data %s)" room-id data)
+                              (efire--info "sucessfully joined room-id=%d (got data %s)" efire--room-id data)
                               (funcall done-callback data))
                           #'(lambda (err)
-                              (efire--error "error joining room-id=%d" room-id)
+                              (efire--error "error joining room-id=%d" efire--room-id)
                               (funcall error-callback err)))))
 
 (defun efire--get-users (room-id user-callback done-callback error-callback)
@@ -266,7 +319,7 @@
                         (propertize (efire--get 'name user)
                                     'face (or face
                                               'font-lock-keyword-face))
-                      (format "looking for %s" (efire--get 'user_id message))))
+                      (format "looking for %s" user)))
          (type-sym (intern type))
          (lui-fill-type (if (eq type-sym 'PasteMessage)
                             nil
@@ -296,6 +349,29 @@
              (funcall callback object))))
 
 
+;;; Funky stuff
+;;;
+(defun efire--get-image (url)
+  (let ((file (make-temp-file "efire-img")))
+    (url-copy-file url file 'ok-if-already-exists)
+    (let ((image (create-image file)))
+      (if (image-animated-p image)
+          (image-animate image nil 60))
+      image)))
+
+(url-encode-url "http://4.bp.blogspot.com/-I9MlJJxbWH8/UP7routh3sI/AAAAAAAAGp0/esEVB5E3EbM/s1600/mr-t-crying.gif")
+
+(defun efire--insert-image-maybe (message)
+  (while (string-match "\\`\n+\\|^\\s-+\\|\\s-+$\\|\n+\\'"
+                       message)
+    (setq message (replace-match "" t t message)))
+  (when (string-match "^\\(https?\\|ftp\\)://\\([^?\r\n]+\\)\\.\\(gif\\|jpg\\|png\\|jpeg\\)$"
+                      message)
+    ()
+    message))
+
+
+
 ;;; Processing json objects returned by campfire
 ;;;
 (defun efire--url (path)
@@ -306,12 +382,13 @@
   (cdr (assoc key object)))
 
 (defun efire--request (path)
-  (let ((buffer
-         (efire--ignoring-errors-maybe
-          (url-retrieve-synchronously (efire--url path)))))
-    (and buffer
-         (with-current-buffer buffer
-           (efire--read-object)))))
+  (let* ((buffer
+          (url-retrieve-synchronously (efire--url path)))
+         (object (and buffer
+                      (with-current-buffer buffer
+                        (efire--read-object)))))
+    (prog1 object
+      (kill-buffer buffer))))
 
 (defun efire--request-async (path callback &optional error-callback)
   (let ((url (url-encode-url
@@ -350,8 +427,7 @@
   (let ((data (decode-coding-string (buffer-substring (point)
                                                       (point-max))
                                     'utf-8)))
-    (efire--ignoring-errors-maybe
-     (json-read-from-string data))))
+    (json-read-from-string data)))
 
 
 
@@ -396,26 +472,7 @@
 (defvar efire--debug nil)
 ;; (setq efire--debug nil)
 
-(defmacro efire--ignoring-errors-maybe (&rest body)
-  `(let ((fn #'(lambda () ,@body)))
-     (if efire--debug
-         (funcall fn)
-       (ignore-errors
-         (funcall fn)))))
 
-(defmacro efire--with-error-checking (error-callback doing-what &rest body)
-  (declare (indent 2))
-  (let ((err-sym (cl-gensym)))
-    `(condition-case ,err-sym
-         (progn
-           (efire--trace "%s" ,doing-what)
-           (funcall #'(lambda () ,@body)))
-       (error
-        (efire--error "something went wrong %s" ,doing-what)
-        (when ,error-callback
-          (funcall ,error-callback ,err-sym))
-        (when efire--debug
-          (signal 'error (cdr ,err-sym)))))))
 
 
 (provide 'efire)
