@@ -210,7 +210,7 @@
                    :test #'(lambda (m1 m2)
                              (= (efire--get 'id m1) (efire--get 'id m2))))
     (efire--insert-message message))
-  (setq efire--last-message message '()))
+  (setq efire--last-message message))
 
 (defun efire--message-batch-received (&rest _ignored)
   (efire--trace "clearing %s" efire--recently-inserted-own-messages)
