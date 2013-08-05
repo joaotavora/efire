@@ -48,23 +48,23 @@
 (defvar efire--whoami nil)
 
 
+;;; Bound dynamically
+(defvar efire--timer nil)
+(defvar efire--room-id nil)
+
+
+
 ;;; Internal vars, buffer-local
 ;;;
-(defvar efire--timer nil)
 (defvar efire--last-message nil)
 (defvar efire--recently-inserted-own-messages nil)
 (defvar efire--buffer nil)
-(defvar efire--timer nil)
 (defvar efire--known-users nil)
-(defvar efire--room-id nil)
 
-(make-variable-buffer-local 'efire--timer)
 (make-variable-buffer-local 'efire--last-message)
 (make-variable-buffer-local 'efire--recently-inserted-own-messages)
 (make-variable-buffer-local 'efire--buffer)
-(make-variable-buffer-local 'efire--timer)
 (make-variable-buffer-local 'efire--known-users)
-(make-variable-buffer-local 'efire--room-id)
 
 
 
@@ -74,18 +74,17 @@
 (defun efire-join-room (room-name)
   (interactive
    (progn
-     (efire--message "getting room names...")
-     (setq efire--rooms (efire--get 'rooms (efire--request "rooms.json")))
-     (setq efire--whoami (efire--get 'user (efire--request "users/me.json")))
      (unless (and efire--rooms
                   efire--whoami)
-       (error "[efire] cannot get room names or current user"))
+       (efire-init)
+       (while (not (and efire--rooms efire--whoami))
+         (message "waiting for some info from the server...")
+         (sit-for 0.5)))
      (list
       (completing-read
        (efire--format "join which room? ")
        (loop for room across efire--rooms
              collect (efire--get 'name room))))))
-
 
   (let ((room
          (cl-find room-name
@@ -94,18 +93,47 @@
                   :test #'string=)))
     (with-current-buffer (efire--room-buffer room-name)
 
-      (setq efire--room-id (efire--get 'id room))
+      (set (make-local-variable 'efire--room-id) (efire--get 'id room))
+      (efire--message "ok this is efire--room-id %s in buffer %s" efire--room-id (current-buffer))
+      (unless efire--room-id
+        (error "what the fuck!!! %s" room))
 
       (unless (eq major-mode 'efire-mode)
-        (efire-mode))
-
-      (when (or (not efire--timer)
-                (not (memq efire--timer timer-list)))
+        (efire-mode)
         (efire--setup-room)
         (efire--join-room #'efire--joined
                           #'efire--teardown))
 
       (pop-to-buffer (current-buffer)))))
+
+
+
+
+(defun efire-init ()
+  (interactive)
+  (let ((no-rooms-fn #'(lambda (reason)
+                         (efire--error "couldn't get rooms from server because %s" reason)))
+        (no-identity-fn #'(lambda (reason)
+                            (efire--error "couldn't get own identity from server because %s" reason))))
+    (efire--request-async "rooms.json"
+                          #'(lambda (obj)
+                              (let ((rooms (efire--get 'rooms obj)))
+                                (cond (rooms
+                                       (setq efire--rooms rooms)
+                                       (efire--message "got %s rooms" (length rooms)))
+                                      (t
+                                       (funcall no-rooms-fn "no rooms in reply")))))
+                          no-rooms-fn)
+    (efire--request-async "users/me.json"
+                          #'(lambda (obj)
+                              (let ((whoami (efire--get 'user obj)))
+                                (cond (whoami
+                                       (setq efire--whoami whoami)
+                                       (efire--message "got own identity id=%s" (efire--get 'id whoami)))
+                                      (t
+                                       (funcall no-identity-fn "no user in reply")))))
+                          no-identity-fn)))
+
 
 
 ;;; Helpers
@@ -122,8 +150,7 @@
            (funcall #'(lambda () ,@body)))
        (error
         (efire--error "something went wrong %s" ,doing-what)
-        (when ,error-callback
-          (funcall ,error-callback ,err-sym))
+        (funcall ,error-callback ,err-sym)
         (when efire--debug
           (signal 'error (cdr ,err-sym)))))))
 
@@ -199,15 +226,15 @@
   (efire--info "Got %s users, starting timer" (hash-table-count efire--known-users))
   (efire--trace "Starting timer for room id=%s" efire--room-id)
   (let* ((saved-buffer (current-buffer))
-         (efire--timer (timer-create))
-         (efire--room-id efire--room-id))
-    (timer-set-function efire--timer
+         (timer (timer-create))
+         (room-id efire--room-id))
+    (timer-set-function timer
                         #'(lambda ()
-                            (let ((efire--timer efire--timer)
-                                  (efire--room-id efire--room-id))
+                            (let ((efire--timer timer)
+                                  (efire--room-id room-id))
                               (efire--fire-timer saved-buffer))))
-    (timer-activate efire--timer)
-    (timer-set-time efire--timer (current-time) 2)))
+    (timer-set-time timer (current-time) 2)
+    (timer-activate timer)))
 
 (defun efire--joined (_data)
   (efire--get-users efire--room-id
@@ -287,6 +314,7 @@
   (let ((url-request-method "POST")
         (url-request-extra-headers
          '(("Content-Type" . "application/json"))))
+    (efire--message "again this is efire--room-id %s in buffer %s" efire--room-id (current-buffer))
     (efire--request-async (format "room/%d/join.json" efire--room-id)
                           #'(lambda (data)
                               (efire--info "sucessfully joined room-id=%d (got data %s)" efire--room-id data)
@@ -342,8 +370,7 @@
         while (not stop)
         do (efire--with-error-checking
                #'(lambda (err)
-                   (when error-callback
-                     (funcall error-callback err))
+                   (funcall error-callback err)
                    (setq stop t))
                (format "processing object id=%s, which is %s" (efire--get 'id object) object)
              (funcall callback object))))
@@ -358,8 +385,6 @@
       (if (image-animated-p image)
           (image-animate image nil 60))
       image)))
-
-(url-encode-url "http://4.bp.blogspot.com/-I9MlJJxbWH8/UP7routh3sI/AAAAAAAAGp0/esEVB5E3EbM/s1600/mr-t-crying.gif")
 
 (defun efire--insert-image-maybe (message)
   (while (string-match "\\`\n+\\|^\\s-+\\|\\s-+$\\|\n+\\'"
@@ -381,16 +406,7 @@
 (defun efire--get (key object)
   (cdr (assoc key object)))
 
-(defun efire--request (path)
-  (let* ((buffer
-          (url-retrieve-synchronously (efire--url path)))
-         (object (and buffer
-                      (with-current-buffer buffer
-                        (efire--read-object)))))
-    (prog1 object
-      (kill-buffer buffer))))
-
-(defun efire--request-async (path callback &optional error-callback)
+(defun efire--request-async (path callback error-callback)
   (let ((url (url-encode-url
               (efire--url path)))
         (saved-buffer (current-buffer)))
@@ -411,9 +427,10 @@
                               (t
                                (efire--error "status was %s" status)
                                (with-current-buffer saved-buffer
-                                 (when error-callback
-                                   (funcall error-callback status)))))
-                        (kill-buffer (current-buffer)))
+                                 (funcall error-callback status))))
+                        (unless efire--debug
+                          (kill-buffer (current-buffer))
+                          (efire--trace "leaving request buffer %s alive" (current-buffer))))
                     nil
                     'silent
                     'inhibit-cookies))))
@@ -423,11 +440,26 @@
 
 (defun efire--read-object ()
   (goto-char (point-min))
-  (search-forward "\n\n" nil t)
-  (let ((data (decode-coding-string (buffer-substring (point)
-                                                      (point-max))
-                                    'utf-8)))
-    (json-read-from-string data)))
+  (search-forward-regexp "\n\n[[:space:]]*" nil t)
+  (cond ((eq (point) (point-max))
+         (efire--trace "no json object in reply"))
+        (t
+         (let ((data (efire--chomp (decode-coding-string (buffer-substring (point)
+                                                                           (point-max))
+                                                         'utf-8))))
+
+
+           (condition-case _err
+               (json-read-from-string data)
+             (error (when efire--debug
+                      (efire--error "unable to read a json object from this data %s" data)
+                      (pop-to-buffer (current-buffer)))))))))
+
+(defun efire--chomp (str)
+  (while (string-match "\\`\n+\\|^\\s-+\\|\\s-+$\\|\n+\\'"
+                       str)
+    (setq str (replace-match "" t t str)))
+  str)
 
 
 
