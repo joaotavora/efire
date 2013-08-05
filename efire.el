@@ -352,7 +352,7 @@
          (user (and user-id
                     (efire--find-user user-id #'efire--register-user)))
          (body (efire--get 'body message)))
-    (efire--info "inserting message %s" message)
+    (efire--trace "inserting message %s" message)
     (cond ((and user body)
            (efire--insert-user-message user message body))
           (t
