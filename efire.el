@@ -379,18 +379,20 @@
          (user-name (propertize (efire--get 'name user)
                                 'face (or face
                                           'font-lock-keyword-face)))
-         (lui-fill-type (if (eq type-sym 'PasteMessage)
-                            nil
-                          lui-fill-type))
          (body (propertize body 'efire--message message)))
-    (cond ((memq type-sym '(TextMessage PasteMessage))
-           (lui-insert (format "%s:%s%s"
+    (cond ((eq type-sym 'TextMessage)
+           (lui-insert (format "%s: %s"
                                (propertize user-name
                                            'efire--user user)
-                               (if (eq type-sym 'PasteMessage) "\n" " ")
-                               (if (eq type-sym 'PasteMessage)
-                                   (propertize body 'face 'font-lock-doc-face)
-                                 body))))
+                               body))
+           (let ((maybe-url (efire--image-url-maybe (efire--chomp body))))
+             (when maybe-url
+               (efire--insert-image-async message maybe-url))))
+          ((eq type-sym 'PasteMessage)
+           (let ((lui-fill-type nil))
+             (lui-insert (format "%s:\n%s"
+                                 (propertize user-name 'efire--user user)
+                                 (propertize body 'face 'font-lock-doc-face)))))
           (t
            (efire--info "unknown message type %s" type-sym)))))
 
@@ -411,13 +413,39 @@
 
 ;;; Funky stuff
 ;;;
-(defun efire--get-image (url)
+
+(defun efire--image-url-maybe (body)
+  (let ((body (efire--chomp body)))
+    (when (string-match "^\\(https?\\|ftp\\)://\\([^?\r\n]+\\)\\.\\(gif\\|jpg\\|png\\|jpeg\\)$"
+                        body)
+      body)))
+
+(defun efire--read-image ()
   (let ((file (make-temp-file "efire-img")))
-    (url-copy-file url file 'ok-if-already-exists)
-    (let ((image (create-image file)))
-      (if (image-animated-p image)
-          (image-animate image nil 60))
-      image)))
+    (unwind-protect
+        (progn
+          (write-region (point) (point-max) file)
+          (let ((image (create-image file)))
+            (if (image-animated-p image)
+                (image-animate image nil 60))
+            image)))))
+
+(defun efire--insert-image-async (message url)
+  (interactive)
+  (efire--request-async url
+                        #'(lambda (image)
+                            (loop for pos = (previous-single-property-change (or pos (point-max)) 'efire--message)
+                                  while pos
+                                  for pos-message = (get-text-property pos 'efire--message)
+                                  when (eq pos-message message)
+                                  do (save-excursion
+                                       (goto-char pos)
+                                       (let ((inhibit-read-only t))
+                                         (insert-image image)))))
+                        #'(lambda (err)
+                            (efire--warning "oops coulnd't get %s because %s" url err))
+                        nil
+                        #'efire--read-image))
 
 (defun efire--try-to-complete-campfire-name ()
   (interactive)
@@ -430,27 +458,20 @@
                        (string-match (format "^%s" prefix)
                                      (efire--get 'name v))))
               do (replace-match (efire--get 'name v)))))))
-(defun efire--insert-image-maybe (message)
-  (while (string-match "\\`\n+\\|^\\s-+\\|\\s-+$\\|\n+\\'"
-                       message)
-    (setq message (replace-match "" t t message)))
-  (when (string-match "^\\(https?\\|ftp\\)://\\([^?\r\n]+\\)\\.\\(gif\\|jpg\\|png\\|jpeg\\)$"
-                      message)
-    ()
-    message))
 
 
 
 ;;; Processing json objects returned by campfire
 ;;;
 (defun efire--url (path)
-  (format "https://%s:X@%s/%s"
-          efire-token efire-host path))
+  (if (string-match "^[[:alpha:]]+://" path)
+      path
+    (format "https://%s/%s" efire-host path)))
 
 (defun efire--get (key object)
   (cdr (assoc key object)))
 
-(defun efire--request-async (path callback error-callback &optional no-auth)
+(defun efire--request-async (path callback error-callback &optional no-auth read-object-fn)
   (let ((url (url-encode-url
               (efire--url path)))
         (url-request-extra-headers
@@ -476,7 +497,7 @@
                                ;; buffer, but the callback must be called in the
                                ;; original buffer.
                                ;;
-                               (let ((object (efire--read-object)))
+                               (let ((object (funcall (or read-object-fn #'efire--read-object))))
                                  (with-current-buffer saved-buffer
                                    (funcall callback object))))
                               (t
@@ -494,8 +515,6 @@
 ;; -d '{"message":{"body":"Hello"}}' https://sample.campfirenow.com/room/1/speak.json
 
 (defun efire--read-object ()
-  (goto-char (point-min))
-  (search-forward-regexp "\n\n[[:space:]]*" nil t)
   (cond ((eq (point) (point-max))
          (efire--trace "no json object in reply"))
         (t
