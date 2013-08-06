@@ -24,8 +24,8 @@ I use [`el-get`][el-get], and the following snippet in my `.emacs`
                                    :pkgname "capitaomorte/efire"
                                    :load-path ("."))))
           (el-get nil 'efire)))
-          
-You can also get `circe` from [MELPA][melpa], and then compile and load `efire` separately. 
+
+You can also get `circe` from [MELPA][melpa], and then compile and load `efire` separately.
 I might request that `efire` be added to MELPA if there's some interest.
 
 [el-get]: https://github.com/dimitri/el-get
@@ -33,9 +33,9 @@ I might request that `efire` be added to MELPA if there's some interest.
 
 Usage
 -----
-Set:
+Set the variable `efire-host`:
 
-    (setq efire-token "yourtoken")
     (setq efire-host "yourhost.campfirenow.com")
 
-And then `M-x efire-join-room`
+And then `M-x efire-join-room`. You should be prompted for your campfire
+username and password only once.

@@ -38,7 +38,6 @@
 
 ;;; Setup and authentication
 ;;;
-(defvar efire-token nil)
 (defvar efire-host nil)
 
 
@@ -47,6 +46,8 @@
 (defvar efire--debug nil)
 (defvar efire--rooms nil)
 (defvar efire--whoami nil)
+(defvar efire--token nil)
+
 
 
 ;;; Internal vars, buffer-local
@@ -76,10 +77,7 @@
    (progn
      (unless (and efire--rooms
                   efire--whoami)
-       (efire-init)
-       (while (not (and efire--rooms efire--whoami))
-         (message "waiting for some info from the server...")
-         (sit-for 0.5)))
+       (efire-init))
      (list
       (completing-read
        (efire--format "join which room? ")
@@ -107,28 +105,38 @@
 
 (defun efire-init ()
   (interactive)
+  (setq efire--rooms
+        efire--whoami)
   (let ((no-rooms-fn #'(lambda (reason)
                          (efire--error "couldn't get rooms from server because %s" reason)))
         (no-identity-fn #'(lambda (reason)
                             (efire--error "couldn't get own identity from server because %s" reason))))
-    (efire--request-async "rooms.json"
-                          #'(lambda (obj)
-                              (let ((rooms (efire--get 'rooms obj)))
-                                (cond (rooms
-                                       (setq efire--rooms rooms)
-                                       (efire--message "got %s rooms" (length rooms)))
-                                      (t
-                                       (funcall no-rooms-fn "no rooms in reply")))))
-                          no-rooms-fn)
-    (efire--request-async "users/me.json"
-                          #'(lambda (obj)
-                              (let ((whoami (efire--get 'user obj)))
-                                (cond (whoami
-                                       (setq efire--whoami whoami)
-                                       (efire--message "got own identity id=%s" (efire--get 'id whoami)))
-                                      (t
-                                       (funcall no-identity-fn "no user in reply")))))
-                          no-identity-fn)))
+    (efire--request-async
+     "users/me.json"
+     #'(lambda (obj)
+         (let ((whoami (efire--get 'user obj)))
+           (cond (whoami
+                  (setq efire--whoami whoami)
+                  (setq efire--token (efire--get 'api_auth_token whoami))
+                  (efire--message "got own identity id=%s" (efire--get 'id whoami))
+                  (efire--request-async
+                   "rooms.json"
+                   #'(lambda (obj)
+                       (let ((rooms (efire--get 'rooms obj)))
+                         (cond (rooms
+                                (setq efire--rooms rooms)
+                                (efire--message "got %s rooms" (length rooms)))
+                               (t
+                                (funcall no-rooms-fn "no rooms in reply")))))
+                   no-rooms-fn))
+                 (t
+                  (funcall no-identity-fn "no user in reply")))))
+     no-identity-fn
+     'request-auth-from-user)
+
+    (while (not (and efire--rooms efire--whoami))
+      (message "waiting for clearance from %s..." efire-host)
+      (sit-for 0.5))))
 
 
 
@@ -428,9 +436,18 @@
 (defun efire--get (key object)
   (cdr (assoc key object)))
 
-(defun efire--request-async (path callback error-callback)
+(defun efire--request-async (path callback error-callback &optional no-auth)
   (let ((url (url-encode-url
               (efire--url path)))
+        (url-request-extra-headers
+         (unless no-auth
+           (progn
+             (unless efire--token
+               (error "Cannot proceed without a campfire token"))
+            `(,@url-request-extra-headers
+              ("Authorization" . ,(concat "Basic "
+                                          (base64-encode-string
+                                           (concat efire--token ":" "X"))))))))
         (saved-buffer (current-buffer)))
     (efire--with-error-checking
         error-callback
@@ -439,6 +456,8 @@
                     #'(lambda (status)
                         (cond ((null status)
                                (efire--trace "calling the url-retrieve callback")
+                               (goto-char (point-min))
+                               (search-forward-regexp "\n\n[[:space:]]*" nil t)
                                ;; notice that the object is read in the http
                                ;; buffer, but the callback must be called in the
                                ;; original buffer.
