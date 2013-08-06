@@ -177,6 +177,9 @@
         efire--known-users (make-hash-table)
         lui-input-function #'efire--input-function)
 
+  (add-to-list (make-local-variable 'completion-at-point-functions)
+               'efire--try-to-complete-campfire-name)
+
   (add-hook 'kill-buffer-hook
             #'(lambda ()
                 (efire--teardown "buffer about to be killed (in kill-buffer-hook)"))
@@ -416,6 +419,17 @@
           (image-animate image nil 60))
       image)))
 
+(defun efire--try-to-complete-campfire-name ()
+  (interactive)
+  (save-match-data
+    (when (looking-back "@\\([a-zA-Z]+\\)")
+      (let ((prefix (match-string 1)))
+        (loop for v being the hash-values of efire--known-users
+              when (save-match-data
+                     (let ((case-fold-search t))
+                       (string-match (format "^%s" prefix)
+                                     (efire--get 'name v))))
+              do (replace-match (efire--get 'name v)))))))
 (defun efire--insert-image-maybe (message)
   (while (string-match "\\`\n+\\|^\\s-+\\|\\s-+$\\|\n+\\'"
                        message)
