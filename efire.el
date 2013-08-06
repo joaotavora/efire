@@ -179,7 +179,7 @@
 
   (add-hook 'kill-buffer-hook
             #'(lambda ()
-                (efire--teardown "buffer about killed (in kill-buffer-hook)"))
+                (efire--teardown "buffer about to be killed (in kill-buffer-hook)"))
             nil
             'local)
 
