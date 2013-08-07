@@ -60,7 +60,6 @@
 (defvar efire--room-id nil)
 (defvar efire--timer nil)
 
-
 (make-variable-buffer-local 'efire--last-message)
 (make-variable-buffer-local 'efire--recently-inserted-own-messages)
 (make-variable-buffer-local 'efire--buffer)
@@ -100,9 +99,6 @@
                           #'efire--teardown))
 
       (pop-to-buffer (current-buffer)))))
-
-
-
 
 (defun efire-init ()
   (interactive)
@@ -167,11 +163,6 @@
 
 
 ;;; Main loop
-;;;
-;;; This is javascript-inspired crazyness to play around with lexical
-;;; binding. But it's not good, emacs has buffer-local vars and many
-;;; find-definition and code-reloading facilities that are rendered
-;;; useless by this approach. To be refactored.
 ;;;
 (defun efire--setup-room ()
   (setq efire--buffer (current-buffer)
@@ -270,8 +261,7 @@
 
 
 
-;;; Helpers
-;;;
+;;; More helpers
 ;;;
 (defun efire--find-user (user-id register-user-fn)
   (let* ((user (gethash user-id efire--known-users)))
@@ -415,7 +405,6 @@
 
 ;;; Funky stuff
 ;;;
-
 (defun efire--image-url-maybe (body)
   (let ((body (efire--chomp body)))
     (when (string-match "^\\(https?\\|ftp\\)://\\([^?\r\n]+\\)\\.\\(gif\\|jpg\\|png\\|jpeg\\)$"
@@ -463,7 +452,7 @@
 
 
 
-;;; Processing json objects returned by campfire
+;;; Low level stuff
 ;;;
 (defun efire--url (path)
   (if (string-match "^[[:alpha:]]+://" path)
@@ -513,9 +502,6 @@
                     'silent
                     'inhibit-cookies))))
 
-;; curl -u 605b32dd:X -H 'Content-Type: application/json' \
-;; -d '{"message":{"body":"Hello"}}' https://sample.campfirenow.com/room/1/speak.json
-
 (defun efire--read-object ()
   (cond ((eq (point) (point-max))
          (efire--trace "no json object in reply"))
@@ -549,8 +535,6 @@
 (defvar efire-verbosity 2
   "Log level for `efire--message' 4 means trace most anything, 0 means nothing.")
 
-;;; (setq efire-verbosity 2)
-
 (defun efire--log (level message &rest args)
   "When LEVEL is above `efire-verbosity-level', log MESSAGE and ARGS."
   (when (>= efire-verbosity level)
@@ -574,11 +558,9 @@
 (defun efire--format (format-control &rest format-args)
   (apply #'format (concat "[efire] " format-control) format-args))
 
-
 ;; (mapatoms #'(lambda (sym)
 ;;               (when (string-match "^efire-" (symbol-name sym))
 ;;                 (unintern sym))))
-
 
 
 (provide 'efire)
