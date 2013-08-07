@@ -39,6 +39,7 @@
 ;;; Setup and authentication
 ;;;
 (defvar efire-host nil)
+(defvar efire-display-images nil)
 
 
 ;;; Internal vars, global
@@ -386,7 +387,8 @@
                                            'efire--user user)
                                body))
            (let ((maybe-url (efire--image-url-maybe (efire--chomp body))))
-             (when maybe-url
+             (when (and efire-display-images
+                        maybe-url)
                (efire--insert-image-async message maybe-url))))
           ((eq type-sym 'PasteMessage)
            (let ((lui-fill-type nil))
