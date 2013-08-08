@@ -1,9 +1,12 @@
-;;; efire.el --- Use campfire from emacs
+;;; efire.el --- Use campfire from Emacs
 
 ;; Copyright (C) 2013  João Távora
 
+;; Version: 0.1
+;; Package-Requires: circe
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Keywords: convenience, tools
+;; URL: https://github.com/capitaomorte/efire
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -20,11 +23,16 @@
 
 ;;; Commentary:
 
-;; Set:
+;; Set or customize the variable `efire-host':
 ;;
 ;;  (setq efire-host "yourhost.campfirenow.com")
 ;;
 ;; And then M-x efire-join-room
+;;
+;; If you need to log in to a diferent server, reset `efire-host' to a different
+;; value and remember to do:
+;;
+;; M-x efire-init
 ;;
 
 ;;; Code:
@@ -38,6 +46,11 @@
 
 ;;; Setup and authentication
 ;;;
+(defgroup efire nil
+  "Use campfire from Emacs"
+  :prefix "efire-"
+  :group 'applications)
+
 (defcustom efire-host "sample.campfirenow.com"
   "Name of the campfire server hosting your chat rooms"
   :group 'efire)
@@ -63,7 +76,6 @@
     (((type x)) (:inherit font-lock-doc-face)))
   "Used to highlight pastes"
   :group 'efire)
-
 
 
 
