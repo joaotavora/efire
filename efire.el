@@ -22,7 +22,6 @@
 
 ;; Set:
 ;;
-;;  (setq efire-token "yourtoken")
 ;;  (setq efire-host "yourhost.campfirenow.com")
 ;;
 ;; And then M-x efire-join-room
