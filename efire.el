@@ -38,8 +38,33 @@
 
 ;;; Setup and authentication
 ;;;
-(defvar efire-host nil)
-(defvar efire-display-images nil)
+(defcustom efire-host "sample.campfirenow.com"
+  "Name of the campfire server hosting your chat rooms"
+  :group 'efire)
+
+(defcustom efire-display-images nil
+  "Non-nil means efire will attempt to load images from URLs"
+  :group 'efire)
+
+(defface efire-user-name-face
+  '((((type tty)) (:inherit font-lock-function-name-face))
+    (((type x)) (:inherit font-lock-function-name-face)))
+  "Used to highlight the name of other users in the room"
+  :group 'efire)
+
+(defface efire-own-name-face
+  '((((type tty)) (:inherit font-lock-keyword-face))
+    (((type x)) (:inherit font-lock-keyword-face)))
+  "Used to highlight your own name in messages you sent room"
+  :group 'efire)
+
+(defface efire-paste-message-face
+  '((((type tty)) (:inherit font-lock-doc-face))
+    (((type x)) (:inherit font-lock-doc-face)))
+  "Used to highlight pastes"
+  :group 'efire)
+
+
 
 
 ;;; Internal vars, global
@@ -280,7 +305,7 @@
                                                                                      (insert
                                                                                       (propertize (efire--get 'name user)
                                                                                                   'efire--user user
-                                                                                                  'face font-lock-keyword-face)))))))
+                                                                                                  'face 'efire-user-name-face)))))))
                                  #'(lambda ()
                                      (efire--warning "couldn't find user %s" user-id)))
            (let ((temp-user `((id . ,user-id)
@@ -375,11 +400,10 @@
          (face (if (and efire--whoami
                         (eq (efire--get 'id efire--whoami)
                             (efire--get 'id user)))
-                   'font-lock-keyword-face
-                 'font-lock-function-name-face))
+                   'efire-own-name-face
+                 'efire-user-name-face))
          (user-name (propertize (efire--get 'name user)
-                                'face (or face
-                                          'font-lock-keyword-face)))
+                                'face face))
          (body (propertize body 'efire--message message)))
     (cond ((eq type-sym 'TextMessage)
            (lui-insert (format "%s: %s"
@@ -394,7 +418,7 @@
            (let ((lui-fill-type nil))
              (lui-insert (format "%s:\n%s"
                                  (propertize user-name 'efire--user user)
-                                 (propertize body 'face 'font-lock-doc-face)))))
+                                 (propertize body 'face 'efire-paste-message-face)))))
           (t
            (efire--info "unknown message type %s" type-sym)))))
 
