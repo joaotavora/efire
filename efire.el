@@ -33,6 +33,7 @@
 (require 'lui)
 (require 'json)
 (require 'url)
+(require 'button)
 
 
 
@@ -272,11 +273,21 @@
                                  #'(lambda (obj)
                                      (let ((user (efire--get 'user obj)))
                                        (efire--info "found user %s to be %s" user-id user)
-                                       (funcall register-user-fn (efire--get 'user obj))))
+                                       (funcall register-user-fn user)
+                                       (efire--process-properties 'efire--user #'(lambda (temp-user)
+                                                                                   (when (eql user-id
+                                                                                              (efire--get 'id temp-user))
+                                                                                     (delete-region (point-min) (point-max))
+                                                                                     (insert
+                                                                                      (propertize (efire--get 'name user)
+                                                                                                  'efire--user user
+                                                                                                  'face font-lock-keyword-face)))))))
                                  #'(lambda ()
                                      (efire--warning "couldn't find user %s" user-id)))
-           `((id . ,user-id)
-             (name . ,(format "looking for %s" user-id))))
+           (let ((temp-user `((id . ,user-id)
+                              (name . ,(format "looking for %s" user-id)))))
+             (funcall register-user-fn temp-user)
+             temp-user))
           (user-id
            (efire--trace "user %s (%s) found in table"
                          user-id
@@ -412,7 +423,7 @@
       body)))
 
 (defun efire--read-image ()
-  (let ((file (make-temp-file "efire-img")))
+  (let ((file (make-temp-file "efire-img" nil ".gif")))
     (unwind-protect
         (progn
           (write-region (point) (point-max) file)
@@ -423,20 +434,40 @@
 
 (defun efire--insert-image-async (message url)
   (interactive)
-  (efire--request-async url
-                        #'(lambda (image)
-                            (loop for pos = (previous-single-property-change (or pos (point-max)) 'efire--message)
-                                  while pos
-                                  for pos-message = (get-text-property pos 'efire--message)
-                                  when (eq pos-message message)
-                                  do (save-excursion
-                                       (goto-char pos)
-                                       (let ((inhibit-read-only t))
-                                         (insert-image image)))))
-                        #'(lambda (err)
-                            (efire--warning "oops coulnd't get %s because %s" url err))
-                        nil
-                        #'efire--read-image))
+  (efire--request-async
+   url
+   #'(lambda (image)
+       (efire--process-properties
+        'efire--message
+        #'(lambda (found-message)
+            (when (eq found-message
+                      message)
+              (let ((button (insert-text-button "[display inline]"
+                                              'action 'efire--toggle-image-display
+                                              'efire--image image
+                                              'efire--url-start (set-marker (make-marker) (point-min))
+                                              'efire--url-end (set-marker (make-marker) (point-max)))))
+                (efire--toggle-image-display button))))))
+   #'(lambda (err)
+       (efire--warning "oops coulnd't get %s because %s" url err))
+   nil
+   #'efire--read-image))
+
+(defun efire--toggle-image-display (button)
+  (let ((url-start (button-get button 'efire--url-start))
+        (url-end (button-get button 'efire--url-end))
+        (image (button-get button 'efire--image))
+        (inhibit-read-only t))
+    (cond ((button-get button 'display)
+           (button-put button 'display nil)
+           (put-text-property url-start
+                              url-end
+                              'invisible nil))
+          (t
+           (button-put button 'display image)
+           (put-text-property url-start
+                              url-end
+                              'invisible t)))))
 
 (defun efire--try-to-complete-campfire-name ()
   (interactive)
@@ -461,6 +492,22 @@
 
 (defun efire--get (key object)
   (cdr (assoc key object)))
+
+(defun efire--process-properties (prop-symbol callback)
+  (save-excursion
+    (loop for pos = (previous-single-property-change (or pos (point-max))
+                                                     prop-symbol)
+          while pos
+          for pos-prop-value = (get-text-property pos prop-symbol)
+          when pos-prop-value
+          do
+          (let ((start pos)
+                (end (next-single-property-change pos prop-symbol)))
+            (let ((inhibit-read-only t))
+              (save-restriction
+                (narrow-to-region start end)
+                (goto-char (point-min))
+                (funcall callback pos-prop-value)))))))
 
 (defun efire--request-async (path callback error-callback &optional no-auth read-object-fn)
   (let ((url (url-encode-url
