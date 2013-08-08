@@ -3,7 +3,7 @@
 ;; Copyright (C) 2013  João Távora
 
 ;; Version: 0.1
-;; Package-Requires: (circe)
+;; Package-Requires: ((circe "0"))
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Keywords: convenience, tools
 ;; URL: https://github.com/capitaomorte/efire
@@ -41,7 +41,8 @@
 (require 'json)
 (require 'url)
 (require 'button)
-
+(eval-when-compile
+  (require 'cl))
 
 
 ;;; Setup and authentication
