@@ -127,8 +127,8 @@
 
 (defun efire-init ()
   (interactive)
-  (setq efire--rooms
-        efire--whoami)
+  (setq efire--rooms nil
+        efire--whoami nil)
   (let ((no-rooms-fn #'(lambda (reason)
                          (efire--error "couldn't get rooms from server because %s" reason)))
         (no-identity-fn #'(lambda (reason)
