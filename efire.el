@@ -1,10 +1,10 @@
 ;;; efire.el --- Use campfire from Emacs
 
-;; Copyright (C) 2013  João Távora
+;; Copyright (C) 2013  Joï¿½o Tï¿½vora
 
 ;; Version: 0.1
-;; Package-Requires: ((circe "0"))
-;; Author: João Távora <joaotavora@gmail.com>
+;; Package-Requires: ((circe "1.2"))
+;; Author: Joï¿½o Tï¿½vora <joaotavora@gmail.com>
 ;; Keywords: convenience, tools
 ;; URL: https://github.com/capitaomorte/efire
 
