@@ -61,20 +61,17 @@
   :group 'efire)
 
 (defface efire-user-name-face
-  '((((type tty)) (:inherit font-lock-function-name-face))
-    (((type x)) (:inherit font-lock-function-name-face)))
+  '((t (:inherit font-lock-function-name-face)))
   "Used to highlight the name of other users in the room"
   :group 'efire)
 
 (defface efire-own-name-face
-  '((((type tty)) (:inherit font-lock-keyword-face))
-    (((type x)) (:inherit font-lock-keyword-face)))
+  '((t (:inherit font-lock-keyword-face)))
   "Used to highlight your own name in messages you sent room"
   :group 'efire)
 
 (defface efire-paste-message-face
-  '((((type tty)) (:inherit font-lock-doc-face))
-    (((type x)) (:inherit font-lock-doc-face)))
+  '((t (:inherit font-lock-doc-face)))
   "Used to highlight pastes"
   :group 'efire)
 
