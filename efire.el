@@ -560,7 +560,11 @@
         (format "getting url %s" url)
       (url-retrieve url
                     #'(lambda (status)
-                        (cond ((null status)
+                        (cond ((plist-get status :error)
+                               (efire--error "status was %s" status)
+                               (with-current-buffer saved-buffer
+                                 (funcall error-callback status)))
+                              (t
                                (efire--trace "calling the url-retrieve callback")
                                (goto-char (point-min))
                                (search-forward-regexp "\n\n[[:space:]]*" nil t)
@@ -570,11 +574,7 @@
                                ;;
                                (let ((object (funcall (or read-object-fn #'efire--read-object))))
                                  (with-current-buffer saved-buffer
-                                   (funcall callback object))))
-                              (t
-                               (efire--error "status was %s" status)
-                               (with-current-buffer saved-buffer
-                                 (funcall error-callback status))))
+                                   (funcall callback object)))))
                         (if efire--debug
                             (efire--trace "leaving request buffer %s alive" (current-buffer))
                           (kill-buffer (current-buffer))))
