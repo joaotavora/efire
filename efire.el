@@ -1,4 +1,4 @@
-;;; efire.el --- Use campfire from Emacs
+;;; efire.el --- Use campfire from Emacs -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2013  João Távora
 
@@ -646,6 +646,5 @@
 (provide 'efire)
 ;;; efire.el ends here
 ;; Local Variables:
-;; lexical-binding: t
 ;; coding: utf-8
 ;; End:
