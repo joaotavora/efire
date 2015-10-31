@@ -29,7 +29,7 @@ You can also get `circe` from [MELPA][melpa], and then compile and load `efire` 
 I might request that `efire` be added to MELPA if there's some interest.
 
 [el-get]: https://github.com/dimitri/el-get
-[melpa]: http://melpa.milkbox.net/
+[melpa]: https://melpa.org/
 
 Usage
 -----
